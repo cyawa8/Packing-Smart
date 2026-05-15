@@ -440,6 +440,7 @@
 //   );
 // }
 
+
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Camera, Square, CheckCircle, RefreshCw, X, AlertCircle, Scan, ArrowLeft } from "lucide-react";
@@ -512,16 +513,13 @@ export default function Scanner() {
       const data = await res.json();
 
       if (data.exists) {
-        // HANYA MUNCULKAN MODAL BLOCKING, TIDAK ADA OPSI TIMPA
         setPendingResi(code);
         setIsDuplicateModalOpen(true);
       } else {
-        // Jika aman (belum ada), lanjut eksekusi perpindahan rekaman
         executeBarcodeSwitch(code);
       }
     } catch (err) {
       console.error("Gagal cek resi, melanjutkan sebagai fallback", err);
-      // Jika server error sesaat, kita tetap izinkan lewat agar kerjaan gudang tidak terhenti
       executeBarcodeSwitch(code);
     } finally {
       isCheckingRef.current = false;
@@ -581,17 +579,6 @@ export default function Scanner() {
     }
   };
 
-  const stopScanner = async () => {
-    if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-      try {
-        await html5QrCodeRef.current.stop();
-        html5QrCodeRef.current = null;
-      } catch (err) {
-        console.error("Stop scanner error:", err);
-      }
-    }
-  };
-
   const startRecording = async (resiCode: string, reuseStream = false) => {
     setStatus("recording");
     setError("");
@@ -614,9 +601,13 @@ export default function Scanner() {
       }
 
       streamRef.current = stream;
+      
+      // PERBAIKAN: Pastikan visual video me-refresh jika elemennya sudah ada
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        if (videoRef.current.srcObject !== stream) {
+          videoRef.current.srcObject = stream;
+        }
+        videoRef.current.play().catch(() => {});
       }
 
       const mimeType = getSupportedMimeType();
@@ -684,6 +675,17 @@ export default function Scanner() {
       streamRef.current = null;
     }
   };
+  
+    const stopScanner = async () => {
+    if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+      try {
+        await html5QrCodeRef.current.stop();
+        html5QrCodeRef.current = null;
+      } catch (err) {
+        console.error("Stop scanner error:", err);
+      }
+    }
+  };
 
   const reset = () => {
     stopCamera();
@@ -737,7 +739,16 @@ export default function Scanner() {
             {status === "recording" && (
               <motion.video
                 key="video"
-                ref={videoRef}
+                // PERBAIKAN: Callback Ref ini memastikan stream nempel begitu elemen selesai di-render
+                ref={(el) => {
+                  videoRef.current = el;
+                  if (el && streamRef.current) {
+                    if (el.srcObject !== streamRef.current) {
+                      el.srcObject = streamRef.current;
+                    }
+                    el.play().catch(() => {});
+                  }
+                }}
                 autoPlay
                 muted
                 playsInline
