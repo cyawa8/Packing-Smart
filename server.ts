@@ -276,7 +276,7 @@ app.get("/api/stats", authenticateToken, isAdmin, (req, res) => {
       stats.totalPacking = row.total;
       db.get("SELECT COUNT(*) as today FROM packing_list WHERE DATE(timestamp) = DATE('now')", (err, row: any) => {
         stats.todayPacking = row.today;
-        db.all("SELECT DATE(timestamp) as date, COUNT(*) as count FROM packing_list WHERE timestamp > DATE('now', '-7 days') GROUP BY DATE(timestamp)", (err, rows) => {
+        db.all("SELECT DATE(timestamp) as date, COUNT(*) as count FROM packing_list GROUP BY DATE(timestamp) ORDER BY date ASC", (err, rows) => {
           stats.dailyChart = rows;
           res.json(stats);
         });
