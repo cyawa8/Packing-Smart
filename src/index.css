@@ -1,0 +1,46 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  @keyframes scan {
+    0%, 100% { transform: translateY(-100%); }
+    50% { transform: translateY(100%); }
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  @apply bg-slate-50 text-slate-900;
+}
+
+/* Fix for html5-qrcode styling integration */
+#qr-reader {
+  border: none !important;
+  border-radius: 1.5rem !important;
+}
+
+#qr-reader__scan_region {
+  border-radius: 1.5rem !important;
+  overflow: hidden;
+}
+
+#qr-reader__dashboard {
+  background: white !important;
+  border-top: 1px solid #f1f5f9 !important;
+  padding: 1rem !important;
+}
+
+#qr-reader button {
+  background: #2563eb !important;
+  color: white !important;
+  border: none !important;
+  padding: 0.5rem 1rem !important;
+  border-radius: 0.5rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+  letter-spacing: 0.05em !important;
+}

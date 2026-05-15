@@ -1,0 +1,6 @@
+{
+  "name": "Smart Packing System",
+  "description": "Efficient warehouse packing system with automated barcode scanning, video proof recording, and Google Drive integration.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": []
+}
