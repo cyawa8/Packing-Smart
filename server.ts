@@ -250,6 +250,16 @@ app.post("/api/packing", authenticateToken, upload.single("video"), async (req: 
   );
 });
 
+// Endpoint BARU untuk mengecek duplikasi resi
+app.get("/api/packing/check/:resi", authenticateToken, (req, res) => {
+  const { resi } = req.params;
+  db.get("SELECT id FROM packing_list WHERE resi_number = ?", [resi], (err, row) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    // Kembalikan true jika resi ditemukan (sudah ada)
+    res.json({ exists: !!row }); 
+  });
+});
+
 app.delete("/api/packing/:id", authenticateToken, isAdmin, (req, res) => {
   db.run("DELETE FROM packing_list WHERE id = ?", [req.params.id], () => res.json({ success: true }));
 });

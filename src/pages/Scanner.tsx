@@ -13,36 +13,30 @@ export default function Scanner() {
   const [error, setError] = useState("");
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   
+  // STATE BARU UNTUK MODAL DUPLIKAT
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [pendingResi, setPendingResi] = useState("");
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const manualInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const activeResiRef = useRef<string>("");
+  const isCheckingRef = useRef<boolean>(false); // Mencegah scan berulang saat mengecek
 
-  const handleManualScan = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (manualResi.trim()) {
-      processBarcode(manualResi.trim());
-      setManualResi("");
-    }
-  };
-  
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Fokus awal
     if (manualInputRef.current) manualInputRef.current.focus();
 
-    // Re-focus jika user klik tempat lain (untuk kenyamanan scanner fisik)
     const handleGlobalClick = () => {
-      if ((status === "scanning" || status === "recording" || status === "idle") && manualInputRef.current) {
+      if ((status === "scanning" || status === "recording" || status === "idle") && manualInputRef.current && !isDuplicateModalOpen) {
         manualInputRef.current.focus();
       }
     };
     document.addEventListener("click", handleGlobalClick);
     
-    // Memberikan jeda agar DOM siap sebelum inisialisasi scanner
     const timer = setTimeout(() => {
       startScanner();
     }, 500);
@@ -53,26 +47,57 @@ export default function Scanner() {
       stopScanner();
       stopCamera();
     };
-  }, [status]);
+  }, [status, isDuplicateModalOpen]);
 
   const getSupportedMimeType = () => {
     const types = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm", "video/mp4"];
     return types.find(type => MediaRecorder.isTypeSupported(type)) || "";
   };
 
+  const handleManualScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (manualResi.trim()) {
+      processBarcode(manualResi.trim());
+    }
+  };
+
+  // LOGIKA BARU: Cek duplikat terlebih dahulu sebelum pindah rekaman
   const processBarcode = async (code: string) => {
-    console.log("Processing Barcode:", code);
+    if (isCheckingRef.current) return; // Cegah double trigger
+    isCheckingRef.current = true;
+    console.log("Checking Barcode:", code);
     
-    // Jika sedang merekam, stop rekaman sebelumnya dan mulai baru
+    try {
+      const res = await fetchWithAuth(`/packing/check/${code}`);
+      const data = await res.json();
+
+      if (data.exists) {
+        // Jika duplikat, munculkan modal (rekaman saat ini biarkan tetap jalan)
+        setPendingResi(code);
+        setIsDuplicateModalOpen(true);
+      } else {
+        // Jika aman, langsung eksekusi perpindahan rekaman
+        executeBarcodeSwitch(code);
+      }
+    } catch (err) {
+      console.error("Gagal cek resi, melanjutkan sebagai fallback", err);
+      executeBarcodeSwitch(code);
+    } finally {
+      isCheckingRef.current = false;
+      setManualResi("");
+    }
+  };
+
+  // FUNGSI PERPINDAHAN REKAMAN (Dipisah agar bisa dipanggil dari Modal)
+  const executeBarcodeSwitch = (code: string) => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       console.log("Saving previous recording and switching to new resi:", code);
-      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stop(); // Stop rekaman lama (otomatis ter-upload)
       
-      // Tunggu agar onstop diproses dan hardware siap
       setTimeout(() => {
         setResi(code);
         activeResiRef.current = code;
-        startRecording(code, true); // true = reuse stream
+        startRecording(code, true); 
       }, 500);
     } else {
       setResi(code);
@@ -107,7 +132,7 @@ export default function Scanner() {
         (decodedText) => {
           processBarcode(decodedText);
         },
-        () => {} // Abaikan error frame scanning
+        () => {}
       );
     } catch (err: any) {
       console.error("Scanner Init Error:", err);
@@ -122,7 +147,6 @@ export default function Scanner() {
       try {
         await html5QrCodeRef.current.stop();
         html5QrCodeRef.current = null;
-        console.log("Scanner stopped");
       } catch (err) {
         console.error("Stop scanner error:", err);
       }
@@ -144,7 +168,6 @@ export default function Scanner() {
             audio: true 
           });
         } catch (e) {
-          console.warn("Microphone access failed, trying video only...");
           stream = await navigator.mediaDevices.getUserMedia({ 
             video: { facingMode: "environment" },
             audio: false
@@ -159,17 +182,21 @@ export default function Scanner() {
       }
 
       const mimeType = getSupportedMimeType();
-      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      // KOMPRESI SUDAH DITERAPKAN DI SINI:
+      const options = {
+        mimeType: 'video/webm;codecs=vp8',
+        videoBitsPerSecond: 250000 
+      };   
+      const mediaRecorder = new MediaRecorder(stream, options);
       const chunks: BlobPart[] = [];
-      const recordingFor = resiCode; // Closure to preserve resi number
-      
+      const recordingFor = resiCode;
+     
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data);
       };
       
       mediaRecorder.onstop = async () => {
         const finalBlob = new Blob(chunks, { type: mimeType });
-        console.log(`Recording for ${recordingFor} stopped, uploading...`);
         uploadVideoBlob(finalBlob, recordingFor);
       };
       
@@ -177,7 +204,6 @@ export default function Scanner() {
       mediaRecorderRef.current = mediaRecorder;
       setIsRecording(true);
     } catch (err: any) {
-      console.error("Camera Access Error:", err);
       setError(`Kamera tidak bisa diakses: ${err.message}`);
       setStatus("idle");
     }
@@ -186,7 +212,6 @@ export default function Scanner() {
   const uploadVideoBlob = async (blobToUpload: Blob, resiCode: string) => {
     if (!blobToUpload || blobToUpload.size === 0) return;
     
-    console.log(`Uploading ${resiCode}...`);
     const formData = new FormData();
     formData.append("video", blobToUpload, `${resiCode}.webm`);
     formData.append("resiNumber", resiCode);
@@ -199,7 +224,6 @@ export default function Scanner() {
       if (!res.ok) throw new Error();
       console.log(`Upload success for ${resiCode}`);
     } catch (err) {
-      console.error(`Upload failed for ${resiCode}`);
       setError(`Gagal mengunggah video untuk resi ${resiCode}`);
     }
   };
@@ -267,7 +291,7 @@ export default function Scanner() {
                 <div id="qr-reader" className="w-full h-full border-none"></div>
                 {status === "scanning" && (
                   <div className="absolute inset-0 border-2 border-dashed border-white/20 m-12 pointer-events-none rounded-2xl flex items-center justify-center">
-                     <div className="w-full h-1 bg-blue-500/30 blur-sm animate-[scan_2s_ease-in-out_infinite]" />
+                      <div className="w-full h-1 bg-blue-500/30 blur-sm animate-[scan_2s_ease-in-out_infinite]" />
                   </div>
                 )}
               </motion.div>
@@ -303,9 +327,10 @@ export default function Scanner() {
                 placeholder="Scan resi baru di sini..."
                 value={manualResi}
                 onChange={(e) => setManualResi(e.target.value)}
-                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg"
+                disabled={isDuplicateModalOpen}
+                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-lg disabled:opacity-50"
               />
-              <button type="submit" className="bg-slate-900 text-white px-6 rounded-xl font-bold text-sm uppercase tracking-wider hover:bg-black transition-colors">OK</button>
+              <button type="submit" disabled={isDuplicateModalOpen} className="bg-slate-900 text-white px-6 rounded-xl font-bold text-sm uppercase tracking-wider hover:bg-black transition-colors disabled:opacity-50">OK</button>
             </form>
             <p className="text-[10px] text-slate-400 mt-3 font-medium italic relative">*Perekaman berpindah otomatis saat scan resi lain terdeteksi.</p>
           </div>
@@ -366,6 +391,51 @@ export default function Scanner() {
           <button onClick={reset} className="ml-auto text-xs underline font-bold px-3 py-1 bg-white rounded-lg shadow-sm">Ulangi</button>
         </motion.div>
       )}
+
+      {/* MODAL PERINGATAN DUPLIKAT RESI */}
+      <AnimatePresence>
+        {isDuplicateModalOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          >
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsDuplicateModalOpen(false)} />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-20 h-20 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-red-50">
+                <AlertCircle size={40} />
+              </div>
+              <h3 className="text-2xl font-black text-slate-900 mb-2">Resi Terdeteksi Ganda!</h3>
+              <p className="text-slate-500 font-medium mb-8 leading-relaxed">
+                Nomor resi <span className="bg-slate-100 text-slate-800 px-2 py-1 rounded font-bold">{pendingResi}</span> sudah pernah di-packing sebelumnya. Yakin ingin menimpa (overwrite) data lamanya?
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => {
+                    setIsDuplicateModalOpen(false);
+                    setPendingResi("");
+                    if (manualInputRef.current) manualInputRef.current.focus();
+                  }} 
+                  className="flex-1 py-3.5 font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                >
+                  Batalkan
+                </button>
+                <button 
+                  onClick={() => {
+                    setIsDuplicateModalOpen(false);
+                    executeBarcodeSwitch(pendingResi);
+                  }} 
+                  className="flex-1 py-3.5 font-bold bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-200"
+                >
+                  Ya, Timpa Data
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
