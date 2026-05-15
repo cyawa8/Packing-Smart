@@ -8,6 +8,7 @@ import multer from "multer";
 import fs from "fs";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import WebSocket from "ws";
 
 // Memastikan file .env selalu terbaca dari root directory
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
@@ -19,7 +20,12 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 // Inisialisasi Client Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL || "",
-  process.env.SUPABASE_ANON_KEY || ""
+  process.env.SUPABASE_ANON_KEY || "",
+  {
+    realtime: {
+      transport: WebSocket as any, // Tambahkan 'as any' di sini
+    },
+  }
 );
 
 // Database Setup
