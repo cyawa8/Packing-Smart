@@ -28,11 +28,31 @@ const supabase = createClient(
   }
 );
 
-// Database Setup
-const dbPath = process.env.NODE_ENV === "production" 
-  ? "/app/data/database.sqlite" 
-  : "database.sqlite";
+// // Database Setup
+// const dbPath = process.env.NODE_ENV === "production" 
+//   ? "/app/data/database.sqlite" 
+//   : "database.sqlite";
 
+// const db = new sqlite3.Database(dbPath, (err) => {
+//   if (err) {
+//     console.error("❌ Database connection error:", err);
+//   } else {
+//     console.log("✅ Connected to SQLite database");
+//     initializeDatabase();
+//   }
+// });
+
+// --- Database Setup ---
+const dbDir = process.env.NODE_ENV === "production" ? "/app/data" : ".";
+const dbPath = `${dbDir}/database.sqlite`;
+
+// 1. Buat foldernya secara paksa jika belum ada
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+  console.log(`✅ Directory ${dbDir} created.`);
+}
+
+// 2. Hubungkan ke SQLite
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error("❌ Database connection error:", err);
