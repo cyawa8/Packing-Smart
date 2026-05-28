@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Local database and video storage
+database.sqlite
+/videos/
+/uploads/
