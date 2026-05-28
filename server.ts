@@ -560,36 +560,70 @@ app.delete("/api/users/:id", authenticateToken, isAdmin, (req, res) => {
 
 // Packing List
 app.get("/api/packing", authenticateToken, (req: any, res) => {
-  const query = "SELECT pl.*, u.username as packer_name FROM packing_list pl JOIN users u ON pl.user_id = u.id ORDER BY pl.timestamp DESC";
-  db.all(query, (err, rows) => res.json(rows));
+  let query = "SELECT pl.*, u.username as packer_name FROM packing_list pl JOIN users u ON pl.user_id = u.id ";
+  const params: any[] = [];
+
+  if (req.user.role === "packer") {
+    query += "WHERE pl.user_id = ? ";
+    params.push(req.user.id);
+  }
+
+  query += "ORDER BY pl.timestamp DESC";
+
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      console.error("Error fetching packing list:", err);
+      return res.status(500).json({ message: "Failed to fetch packing list" });
+    }
+    res.json(rows || []);
+  });
 });
 
 app.post("/api/packing", authenticateToken, upload.single("video"), async (req: any, res) => {
   const { shopId, resiNumber } = req.body;
   const file = req.file;
 
-  if (!file) return res.status(400).json({ message: "No video provided" });
+  let driveLink = "local";
 
-  const fileName = `Packing_${resiNumber}_${Date.now()}.webm`;
-  const localDest = path.join(VIDEOS_DIR, fileName);
-  let driveLink = `/videos/${fileName}`;
+  if (file) {
+    const fileName = `Packing_${resiNumber}_${Date.now()}.webm`;
+    const localDest = path.join(VIDEOS_DIR, fileName);
+    driveLink = `/videos/${fileName}`;
 
-  // Cek konfigurasi Drive
-  const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const hasKey = !!process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.includes("BEGIN PRIVATE KEY");
+    // Cek konfigurasi Drive
+    const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    const hasKey = !!process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.includes("BEGIN PRIVATE KEY");
 
-  if (hasEmail && hasKey) {
-      console.log("Attempting GDrive upload...");
-      const uploadedLink = await uploadToDrive(file.path, fileName);
-      if (uploadedLink) {
-        driveLink = uploadedLink;
-      } else {
-        console.warn("GDrive Upload resulted in null. Saving to local server storage...");
-        fs.copyFileSync(file.path, localDest);
-      }
-  } else {
-      console.log("GDrive not configured. Saving to local server storage... Path:", localDest);
-      fs.copyFileSync(file.path, localDest);
+    if (hasEmail && hasKey) {
+        console.log("Attempting GDrive upload...");
+        const uploadedLink = await uploadToDrive(file.path, fileName);
+        if (uploadedLink) {
+          driveLink = uploadedLink;
+        } else {
+          console.warn("GDrive Upload resulted in null. Saving to local server storage as fallback...");
+          try {
+            fs.copyFileSync(file.path, localDest);
+          } catch (writeErr) {
+            console.warn("Could not copy file to local server storage (expected in read-only platforms like Vercel). Using client local device storage instead.", writeErr);
+            driveLink = "local";
+          }
+        }
+    } else {
+        console.log("GDrive not configured. Attempting to copy to local server storage...");
+        try {
+          fs.copyFileSync(file.path, localDest);
+        } catch (writeErr) {
+          console.warn("Could not copy file to local server storage (expected in serverless hosting like Vercel). Saving as local PC storage only.", writeErr);
+          driveLink = "local";
+        }
+    }
+
+    // Delete temporary file
+    try {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    } catch (e) {
+      console.warn("Could not clean up temp file:", e);
+    }
   }
 
   // Gunakan INSERT OR REPLACE agar data resi bersifat unik (UPSERT)
@@ -603,9 +637,7 @@ app.post("/api/packing", authenticateToken, upload.single("video"), async (req: 
       db.run("INSERT INTO logs (description, user_id) VALUES (?, ?)", 
         [`Packed/Updated order ${resiNumber}`, req.user.id]);
         
-      res.json({ success: true });
-      // Delete temporary file
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      res.json({ success: true, driveLink });
     }
   );
 });

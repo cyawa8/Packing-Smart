@@ -878,7 +878,6 @@
 //     </div>
 //   );
 // }
-
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Camera, Square, CheckCircle, RefreshCw, X, AlertCircle, Scan, ArrowLeft } from "lucide-react";
@@ -894,7 +893,8 @@ export default function Scanner() {
   const [error, setError] = useState("");
   const [videoBlob, setVideoBlob] = useState<Blob | null>(null);
   const [autoDownload, setAutoDownload] = useState<boolean>(() => {
-    return localStorage.getItem("auto_download") === "true";
+    const saved = localStorage.getItem("auto_download");
+    return saved === null ? true : saved === "true";
   });
 
   useEffect(() => {
@@ -1218,17 +1218,22 @@ export default function Scanner() {
             </form>
             <p className="text-[10px] text-slate-400 mt-3 font-medium italic relative">*Perekaman berpindah otomatis saat scan resi lain terdeteksi.</p>
             
-            <div className="mt-4 flex items-center gap-2 relative border-t border-slate-100 pt-3">
-              <input 
-                id="auto-download-cb"
-                type="checkbox"
-                checked={autoDownload}
-                onChange={(e) => setAutoDownload(e.target.checked)}
-                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-              />
-              <label htmlFor="auto-download-cb" className="text-xs font-semibold text-slate-600 cursor-pointer select-none">
-                Simpan Otomatis (Auto-Download Video ke PC) ketika selesai packing
-              </label>
+            <div className="mt-4 flex flex-col gap-2 relative border-t border-slate-100 pt-3">
+              <div className="flex items-center gap-2">
+                <input 
+                  id="auto-download-cb"
+                  type="checkbox"
+                  checked={autoDownload}
+                  onChange={(e) => setAutoDownload(e.target.checked)}
+                  className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                />
+                <label htmlFor="auto-download-cb" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                  Simpan Video Packing ke PC Lokal (Auto-Download)
+                </label>
+              </div>
+              <p className="text-[10px] text-slate-500 font-medium leading-relaxed leading-relaxed pl-6">
+                Penyimpanan cloud Dinonaktifkan. Setiap selesai packing, rekaman video akan langsung diunduh dan tersimpan di folder PC Anda sendiri (folder download lokal) untuk menghemat bandwidth dan privasi data.
+              </p>
             </div>
           </div>
 
