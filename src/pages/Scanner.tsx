@@ -896,10 +896,30 @@ export default function Scanner() {
     const saved = localStorage.getItem("auto_download");
     return saved === null ? true : saved === "true";
   });
+  const [dirHandle, setDirHandle] = useState<any>(null);
+  const [dirName, setDirName] = useState<string>("");
 
   useEffect(() => {
     localStorage.setItem("auto_download", String(autoDownload));
   }, [autoDownload]);
+
+  const selectLocalFolder = async () => {
+    try {
+      if (!('showDirectoryPicker' in window)) {
+        alert("Browser Anda belum mendukung Directory Picker API. Harap gunakan browser modern berbasis Chromium seperti Google Chrome atau Microsoft Edge untuk akses langsung Drive C:\\ / NAS.");
+        return;
+      }
+      const handle = await (window as any).showDirectoryPicker();
+      setDirHandle(handle);
+      setDirName(handle.name);
+      setError("");
+    } catch (err: any) {
+      console.error("Directory picker error or cancel:", err);
+      if (err.name !== "AbortError") {
+        setError(`Gagal mengakses folder pilihan Anda: ${err.message}`);
+      }
+    }
+  };
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const manualInputRef = useRef<HTMLInputElement>(null);
@@ -1059,8 +1079,35 @@ export default function Scanner() {
         const finalBlob = new Blob(chunks, { type: mimeType });
         console.log(`Recording for ${recordingFor} stopped, uploading...`);
         
-        // Auto-download to PC if enabled
-        if (autoDownload) {
+        let savedDirectHandle = false;
+
+        // Save directly to the user-selected local folder via Web File System API
+        if (dirHandle) {
+          try {
+            // Verify and request permission to read/write to specified local directory
+            const permissionOpts = { mode: 'readwrite' };
+            const isGranted = (await dirHandle.queryPermission(permissionOpts)) === 'granted';
+            if (!isGranted) {
+              const res = await dirHandle.requestPermission(permissionOpts);
+              if (res !== 'granted') {
+                throw new Error("Izin akses folder ditolak pembeli");
+              }
+            }
+
+            // Write output file directly inside target directory
+            const fileHandle = await dirHandle.getFileHandle(`Packing_${recordingFor}.webm`, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(finalBlob);
+            await writable.close();
+            console.log("Direct write success to custom PC local folder:", recordingFor);
+            savedDirectHandle = true;
+          } catch (fsErr: any) {
+            console.error("Direct saving via directory handle failed. Falling back to default browser download:", fsErr);
+          }
+        }
+
+        // Auto-download to PC if enabled and not saved via direct directory handle
+        if (autoDownload && !savedDirectHandle) {
           try {
             const url = URL.createObjectURL(finalBlob);
             const a = document.createElement("a");
@@ -1231,9 +1278,45 @@ export default function Scanner() {
                   Simpan Video Packing ke PC Lokal (Auto-Download)
                 </label>
               </div>
-              <p className="text-[10px] text-slate-500 font-medium leading-relaxed leading-relaxed pl-6">
-                Penyimpanan cloud Dinonaktifkan. Setiap selesai packing, rekaman video akan langsung diunduh dan tersimpan di folder PC Anda sendiri (folder download lokal) untuk menghemat bandwidth dan privasi data.
+              <p className="text-[10px] text-slate-500 font-medium leading-relaxed pl-6">
+                Penyimpanan cloud Dinonaktifkan. Setiap selesai packing, rekaman video akan langsung terunduh/tersimpan di PC Anda sendiri untuk keandalan dan privasi penuh.
               </p>
+
+              {/* Direct local directory select card */}
+              <div className="mt-1 pl-6">
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                  <p className="text-[10px] font-black text-slate-800 uppercase tracking-wider mb-2">⭐ Opsi Lanjutan: Simpan ke Folder C:\ / NAS PC Anda</p>
+                  
+                  {dirHandle ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-bold bg-emerald-50/50 px-2.5 py-1.5 rounded-lg border border-emerald-100">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+                        Terhubung: /{dirName}
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={selectLocalFolder}
+                        className="text-[10px] font-extrabold text-slate-500 underline hover:text-indigo-600 transition-colors"
+                      >
+                        Ganti Folder
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <p className="text-[9px] text-slate-500 font-bold leading-relaxed">
+                        Anda dapat mengarahkan/menghubungkan folder tujuan pemindahan langsung ke partisi Drive C:\, D:\, atau Drive NAS lokal. Video akan disimpan langsung ke folder tersebut tanpa menunjukkan pop-up browser.
+                      </p>
+                      <button 
+                        type="button"
+                        onClick={selectLocalFolder}
+                        className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-black py-2 px-3 rounded-xl border border-indigo-100 transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Camera size={14} /> Hubungkan Folder Disk PC (Drive C/D/NAS)
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
