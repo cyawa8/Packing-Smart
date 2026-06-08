@@ -67,7 +67,7 @@ export default function Login() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none text-slate-900 font-medium"
-                  placeholder="admin"
+                  placeholder="Input Username"
                 />
               </div>
             </div>
@@ -84,7 +84,7 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none text-slate-900 font-medium"
-                  placeholder="••••••••"
+                  placeholder="Input Password"
                 />
               </div>
             </div>
@@ -110,7 +110,7 @@ export default function Login() {
 
           <div className="mt-8 pt-8 border-t border-slate-100">
             <p className="text-center text-xs text-slate-400 font-bold uppercase tracking-widest">
-              Demo Account: admin / admin123
+              Dibuat dengan Cinta Wisan Maulana
             </p>
           </div>
         </div>

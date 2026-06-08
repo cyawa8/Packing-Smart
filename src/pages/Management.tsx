@@ -21,6 +21,15 @@ export default function Management() {
     fetchData();
   }, []);
 
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [pwdMessage, setPwdMessage] = useState("");
+  const [pwdError, setPwdError] = useState("");
+
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+  const [resetError, setResetError] = useState("");
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const res = await fetchWithAuth("/users", {
@@ -31,6 +40,59 @@ export default function Management() {
       setIsModalOpen(false);
       setFormData({});
       fetchData();
+    }
+  };
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdMessage("");
+    setPwdError("");
+    try {
+      const res = await fetchWithAuth("/users/change-password", {
+        method: "POST",
+        body: JSON.stringify({ oldPassword, newPassword })
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setPwdError(json.message || "Gagal mengubah password.");
+      } else {
+        setPwdMessage(json.message || "Password berhasil diubah!");
+        setOldPassword("");
+        setNewPassword("");
+      }
+    } catch (err: any) {
+      setPwdError("Terjadi kesalahan jaringan.");
+    }
+  };
+
+  const handleResetDatabase = async () => {
+    const confirmation1 = confirm("⚠️ PERINGATAN KERAS!\n\nApakah Anda YAKIN ingin menghaus/reset seluruh database? Tindakan ini akan menghapus semua riwayat packing, log aktivitas, dan akun packer lain.");
+    if (!confirmation1) return;
+
+    const confirmation2 = confirm("🚨 KONFIRMASI TERAKHIR!\n\nSeluruh data akan hilang selamanya. SQLite akan kembali kosong bersih seperti saat pertama kali dipasang, hanya menyisakan akun admin default ('admin123').\n\nLanjutkan reset?");
+    if (!confirmation2) return;
+
+    setResetLoading(true);
+    setResetMessage("");
+    setResetError("");
+    try {
+      const res = await fetchWithAuth("/admin/reset-database", { method: "POST" });
+      const json = await res.json();
+      if (res.ok) {
+        setResetMessage(json.message || "Database berhasil direset bersih!");
+        fetchData();
+        // Logout user after delay to reset state
+        setTimeout(() => {
+          localStorage.clear();
+          window.location.href = "/login";
+        }, 3000);
+      } else {
+        setResetError(json.message || "Gagal melakukan reset.");
+      }
+    } catch (err) {
+      setResetError("Terjadi kesalahan jaringan.");
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -108,6 +170,108 @@ export default function Management() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Pengaturan Tambahan: Ganti Password & Reset Database */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+        {/* Box Ganti Password */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 className="font-bold text-slate-900 mb-1">Ganti Password Admin</h3>
+            <p className="text-xs text-slate-500 font-medium mb-6">Ubah kata sandi akun bapak saat ini agar lebih aman.</p>
+            
+            <form onSubmit={handlePasswordChange} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">PASSWORD LAMA</label>
+                <input 
+                  type="password"
+                  required
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  placeholder="Masukkan password saat ini..."
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">PASSWORD BARU</label>
+                <input 
+                  type="password"
+                  required
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Masukkan password baru..."
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-sm font-medium"
+                />
+              </div>
+
+              {pwdMessage && (
+                <div className="p-3 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-100 flex items-center gap-2">
+                  <span>✓</span> {pwdMessage}
+                </div>
+              )}
+              {pwdError && (
+                <div className="p-3 bg-red-50 text-red-800 text-xs font-bold rounded-xl border border-red-100 flex items-center gap-2">
+                  <AlertCircle size={14} /> {pwdError}
+                </div>
+              )}
+
+              <button 
+                type="submit"
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-3.5 px-4 rounded-xl transition-colors shadow-sm"
+              >
+                Simpan Password Baru
+              </button>
+            </form>
+          </div>
+        </div>
+
+        {/* Box Reset Database */}
+        <div className="bg-white p-6 rounded-3xl border border-red-100 shadow-sm flex flex-col justify-between hover:border-red-200 transition-colors bg-gradient-to-br from-white to-red-50/10">
+          <div>
+            <div className="flex items-center gap-2 text-red-600 mb-1">
+              <AlertCircle size={20} />
+              <h3 className="font-bold">Zona Bahaya: Reset Database</h3>
+            </div>
+            <p className="text-xs text-slate-500 font-medium mb-6">Kembalikan aplikasi ke kondisi awal pabrik. Semua data bapak akan dibersihkan total.</p>
+            
+            <div className="bg-red-50 p-4 rounded-2xl border border-red-100 mb-6 space-y-2">
+              <h4 className="text-xs font-bold text-red-800 leading-relaxed">⚠️ Efek Aksi Ini:</h4>
+              <ul className="list-disc pl-4 text-[11px] text-red-700 space-y-1 font-medium">
+                <li>Menghapus seluruh rekaman Packing List dari database</li>
+                <li>Menghapus semua log data aktivitas</li>
+                <li>Menghapus semua akun packer buatan bapak</li>
+                <li>Menyisakan akun default: <strong>admin</strong> dengan password <strong>admin123</strong></li>
+              </ul>
+            </div>
+
+            {resetMessage && (
+              <div className="p-3 bg-emerald-50 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-100 mb-4">
+                {resetMessage} Mengarahkan keluar...
+              </div>
+            )}
+            {resetError && (
+              <div className="p-3 bg-red-50 text-red-800 text-xs font-bold rounded-xl border border-red-100 mb-4">
+                {resetError}
+              </div>
+            )}
+
+            <button 
+              type="button"
+              disabled={resetLoading}
+              onClick={handleResetDatabase}
+              className="w-full bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-xs font-bold py-3.5 px-4 rounded-xl transition-colors shadow-md shadow-red-100 flex items-center justify-center gap-2"
+            >
+              {resetLoading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Sedang Meriset...
+                </>
+              ) : (
+                "Reset Ulang Semua Database ke Awal"
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

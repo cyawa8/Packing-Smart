@@ -404,7 +404,7 @@ if (!fs.existsSync(VIDEOS_DIR)) {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // Database Setup
@@ -558,6 +558,43 @@ app.delete("/api/users/:id", authenticateToken, isAdmin, (req, res) => {
   db.run("DELETE FROM users WHERE id = ?", [req.params.id], () => res.json({ success: true }));
 });
 
+// Change Password
+app.post("/api/users/change-password", authenticateToken, (req: any, res) => {
+  const { oldPassword, newPassword } = req.body;
+  db.get("SELECT * FROM users WHERE id = ?", [req.user.id], (err, user: any) => {
+    if (err || !user) return res.status(404).json({ message: "User tidak ditemukan" });
+    if (!bcrypt.compareSync(oldPassword, user.password)) {
+      return res.status(400).json({ message: "Password lama salah" });
+    }
+    const newHash = bcrypt.hashSync(newPassword, 10);
+    db.run("UPDATE users SET password = ? WHERE id = ?", [newHash, req.user.id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ message: "Gagal merubah password" });
+      db.run("INSERT INTO logs (description, user_id) VALUES (?, ?)", [`User ${user.username} diubah passwordnya`, req.user.id]);
+      res.json({ success: true, message: "Password berhasil diperbarui" });
+    });
+  });
+});
+
+// Reset Database Securely (Admin Only)
+app.post("/api/admin/reset-database", authenticateToken, isAdmin, (req: any, res) => {
+  db.serialize(() => {
+    db.run("DELETE FROM logs", (err) => {
+      if (err) console.error("Error clearing logs:", err);
+    });
+    db.run("DELETE FROM packing_list", (err) => {
+      if (err) console.error("Error clearing packing list:", err);
+    });
+    db.run("DELETE FROM users WHERE username != 'admin'", (err) => {
+      if (err) console.error("Error clearing users:", err);
+    });
+    
+    // Log the action
+    db.run("INSERT INTO logs (description, user_id) VALUES (?, ?)", ["Database direset bersih oleh Administrator", req.user.id], () => {
+      res.json({ success: true, message: "Seluruh data packing, logs, dan akun packer berhasil direset bersih ke kondisi awal!" });
+    });
+  });
+});
+
 // Packing List
 app.get("/api/packing", authenticateToken, (req: any, res) => {
   let query = "SELECT pl.*, u.username as packer_name FROM packing_list pl JOIN users u ON pl.user_id = u.id ";
@@ -583,63 +620,80 @@ app.post("/api/packing", authenticateToken, upload.single("video"), async (req: 
   const { shopId, resiNumber } = req.body;
   const file = req.file;
 
-  let driveLink = "local";
+  // 1. Get today's total count to determine sequence index "Ke-X"
+  db.get("SELECT COUNT(*) as count FROM packing_list WHERE DATE(timestamp) = DATE('now')", async (err, row: any) => {
+    if (err) {
+      console.error("Failed to query daily packing sequence count:", err);
+    }
+    const seq = (row?.count || 0) + 1;
 
-  if (file) {
-    const fileName = `Packing_${resiNumber}_${Date.now()}.webm`;
+    // Create custom Date string YYYY-MM-DD
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const date = String(d.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${date}`;
+
+    const fileName = `Packing_${dateStr}_Ke-${seq}_Resi_${resiNumber}.webm`;
     const localDest = path.join(VIDEOS_DIR, fileName);
-    driveLink = `/videos/${fileName}`;
+    let driveLink = "local";
 
-    // Cek konfigurasi Drive
-    const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-    const hasKey = !!process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.includes("BEGIN PRIVATE KEY");
+    if (file) {
+      driveLink = `/videos/${fileName}`;
 
-    if (hasEmail && hasKey) {
-        console.log("Attempting GDrive upload...");
-        const uploadedLink = await uploadToDrive(file.path, fileName);
-        if (uploadedLink) {
-          driveLink = uploadedLink;
-        } else {
-          console.warn("GDrive Upload resulted in null. Saving to local server storage as fallback...");
+      // Cek konfigurasi Drive
+      const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+      const hasKey = !!process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_PRIVATE_KEY.includes("BEGIN PRIVATE KEY");
+
+      if (hasEmail && hasKey) {
+          console.log("Attempting GDrive upload...");
+          const uploadedLink = await uploadToDrive(file.path, fileName);
+          if (uploadedLink) {
+            driveLink = uploadedLink;
+          } else {
+            console.warn("GDrive Upload resulted in null. Saving to local server storage as fallback...");
+            try {
+              fs.copyFileSync(file.path, localDest);
+            } catch (writeErr) {
+              console.warn("Could not copy file to local server storage (expected in read-only platforms like Vercel). Using client local device storage instead.", writeErr);
+              driveLink = "local";
+            }
+          }
+      } else {
+          console.log("GDrive not configured. Attempting to copy to local server storage...");
           try {
             fs.copyFileSync(file.path, localDest);
           } catch (writeErr) {
-            console.warn("Could not copy file to local server storage (expected in read-only platforms like Vercel). Using client local device storage instead.", writeErr);
+            console.warn("Could not copy file to local server storage (expected in serverless hosting like Vercel). Saving as local PC storage only.", writeErr);
             driveLink = "local";
           }
-        }
-    } else {
-        console.log("GDrive not configured. Attempting to copy to local server storage...");
-        try {
-          fs.copyFileSync(file.path, localDest);
-        } catch (writeErr) {
-          console.warn("Could not copy file to local server storage (expected in serverless hosting like Vercel). Saving as local PC storage only.", writeErr);
-          driveLink = "local";
-        }
-    }
-
-    // Delete temporary file
-    try {
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-    } catch (e) {
-      console.warn("Could not clean up temp file:", e);
-    }
-  }
-
-  // Gunakan INSERT OR REPLACE agar data resi bersifat unik (UPSERT)
-  db.run("INSERT OR REPLACE INTO packing_list (resi_number, drive_link, user_id, timestamp) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
-    [resiNumber, driveLink, req.user.id], function(err) {
-      if (err) {
-        console.error("DB Error:", err);
-        return res.status(500).json({ message: "Save failed" });
       }
-      
-      db.run("INSERT INTO logs (description, user_id) VALUES (?, ?)", 
-        [`Packed/Updated order ${resiNumber}`, req.user.id]);
-        
-      res.json({ success: true, driveLink });
+
+      // Delete temporary file
+      try {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      } catch (e) {
+        console.warn("Could not clean up temp file:", e);
+      }
     }
-  );
+
+    const savedLink = driveLink === "local" ? fileName : driveLink;
+
+    // Gunakan INSERT OR REPLACE agar data resi bersifat unik (UPSERT)
+    db.run("INSERT OR REPLACE INTO packing_list (resi_number, drive_link, user_id, timestamp) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+      [resiNumber, savedLink, req.user.id], function(err) {
+        if (err) {
+          console.error("DB Error:", err);
+          return res.status(500).json({ message: "Save failed" });
+        }
+        
+        db.run("INSERT INTO logs (description, user_id) VALUES (?, ?)", 
+          [`Packed/Updated order ${resiNumber}`, req.user.id]);
+          
+        res.json({ success: true, driveLink: savedLink, fileName });
+      }
+    );
+  });
 });
 
 app.delete("/api/packing/:id", authenticateToken, isAdmin, (req, res) => {
@@ -665,12 +719,26 @@ app.get("/api/stats", authenticateToken, isAdmin, (req, res) => {
   const stats: any = {};
   db.serialize(() => {
     db.get("SELECT COUNT(*) as total FROM packing_list", (err, row: any) => {
-      stats.totalPacking = row.total;
+      stats.totalPacking = row?.total || 0;
       db.get("SELECT COUNT(*) as today FROM packing_list WHERE DATE(timestamp) = DATE('now')", (err, row: any) => {
-        stats.todayPacking = row.today;
+        stats.todayPacking = row?.today || 0;
         db.all("SELECT DATE(timestamp) as date, COUNT(*) as count FROM packing_list WHERE timestamp > DATE('now', '-7 days') GROUP BY DATE(timestamp)", (err, rows) => {
-          stats.dailyChart = rows;
-          res.json(stats);
+          stats.dailyChart = rows || [];
+          
+          const packersQuery = `
+            SELECT 
+              u.username,
+              COALESCE(p.count, 0) as count,
+              COALESCE(p_today.todayCount, 0) as todayCount
+            FROM users u
+            LEFT JOIN (SELECT user_id, COUNT(*) as count FROM packing_list GROUP BY user_id) p ON u.id = p.user_id
+            LEFT JOIN (SELECT user_id, COUNT(*) as todayCount FROM packing_list WHERE DATE(timestamp) = DATE('now') GROUP BY user_id) p_today ON u.id = p_today.user_id
+            ORDER BY count DESC, u.username ASC
+          `;
+          db.all(packersQuery, (err, packerRows) => {
+            stats.packerStats = packerRows || [];
+            res.json(stats);
+          });
         });
       });
     });

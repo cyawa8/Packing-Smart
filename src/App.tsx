@@ -72,8 +72,8 @@ const Sidebar = ({ role, open, setOpen }: { role: string; open: boolean; setOpen
               <Truck size={24} />
             </div>
             <div>
-              <h1 className="font-bold text-slate-900 leading-tight">SmartPack</h1>
-              <p className="text-xs text-slate-500 font-medium">Warehouse Pro</p>
+              <h1 className="font-bold text-slate-900 leading-tight">Smart Pack Fantech</h1>
+              <p className="text-xs text-slate-500 font-medium">Warehouse</p>
             </div>
           </div>
 
