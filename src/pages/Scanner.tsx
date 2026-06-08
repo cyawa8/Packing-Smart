@@ -878,6 +878,7 @@
 //     </div>
 //   );
 // }
+
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Camera, Square, CheckCircle, RefreshCw, X, AlertCircle, Scan, ArrowLeft } from "lucide-react";
@@ -1232,7 +1233,16 @@ export default function Scanner() {
             {status === "recording" && (
               <motion.video
                 key="video"
-                ref={videoRef}
+                // GUNAKAN CALLBACK REF INI
+                ref={(el) => {
+                  videoRef.current = el;
+                  if (el && streamRef.current) {
+                    if (el.srcObject !== streamRef.current) {
+                      el.srcObject = streamRef.current;
+                    }
+                    el.play().catch(() => {});
+                  }
+                }}
                 autoPlay
                 muted
                 playsInline
