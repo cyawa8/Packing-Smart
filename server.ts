@@ -386,7 +386,7 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import sqlite3 from "sqlite3";
+import sqlite3 from "./sqlite-json";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
@@ -408,7 +408,7 @@ const PORT = 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // Database Setup
-const db = new sqlite3.Database("database.sqlite", (err) => {
+const db = new sqlite3.Database("database.sqlite", (err: Error | null) => {
   if (err) {
     console.error("❌ Database connection error:", err);
   } else {
@@ -445,7 +445,7 @@ function initializeDatabase() {
 
     // Default admin user
     const adminPassword = bcrypt.hashSync("admin123", 10);
-    db.run("INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)", ["admin", adminPassword, "admin"], (err) => {
+    db.run("INSERT OR IGNORE INTO users (username, password, role) VALUES (?, ?, ?)", ["admin", adminPassword, "admin"], (err: Error | null) => {
       if (!err) console.log("✅ Default admin user ensured");
     });
   });
@@ -526,7 +526,7 @@ const uploadToDrive = async (filePath: string, fileName: string) => {
 // Auth
 app.post("/api/auth/login", (req, res) => {
   const { username, password } = req.body;
-  db.get("SELECT * FROM users WHERE username = ?", [username], (err, user: any) => {
+  db.get("SELECT * FROM users WHERE username = ?", [username], (err: Error | null, user: any) => {
     if (err || !user) return res.status(401).json({ message: "User not found" });
     if (!bcrypt.compareSync(password, user.password)) return res.status(401).json({ message: "Invalid credentials" });
 
@@ -540,7 +540,7 @@ app.post("/api/auth/login", (req, res) => {
 
 // Users
 app.get("/api/users", authenticateToken, isAdmin, (req, res) => {
-  db.all("SELECT id, username, role FROM users", (err, rows) => {
+  db.all("SELECT id, username, role FROM users", (err: Error | null, rows: any[]) => {
     res.json(rows);
   });
 });
@@ -548,7 +548,7 @@ app.get("/api/users", authenticateToken, isAdmin, (req, res) => {
 app.post("/api/users", authenticateToken, isAdmin, (req, res) => {
   const { username, password, role } = req.body;
   const hash = bcrypt.hashSync(password, 10);
-  db.run("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", [username, hash, role], function(err) {
+  db.run("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", [username, hash, role], function(this: any, err: Error | null) {
     if (err) return res.status(500).json({ message: "Username already exists" });
     res.json({ id: this.lastID });
   });
@@ -561,13 +561,13 @@ app.delete("/api/users/:id", authenticateToken, isAdmin, (req, res) => {
 // Change Password
 app.post("/api/users/change-password", authenticateToken, (req: any, res) => {
   const { oldPassword, newPassword } = req.body;
-  db.get("SELECT * FROM users WHERE id = ?", [req.user.id], (err, user: any) => {
+  db.get("SELECT * FROM users WHERE id = ?", [req.user.id], (err: Error | null, user: any) => {
     if (err || !user) return res.status(404).json({ message: "User tidak ditemukan" });
     if (!bcrypt.compareSync(oldPassword, user.password)) {
       return res.status(400).json({ message: "Password lama salah" });
     }
     const newHash = bcrypt.hashSync(newPassword, 10);
-    db.run("UPDATE users SET password = ? WHERE id = ?", [newHash, req.user.id], (updateErr) => {
+    db.run("UPDATE users SET password = ? WHERE id = ?", [newHash, req.user.id], (updateErr: Error | null) => {
       if (updateErr) return res.status(500).json({ message: "Gagal merubah password" });
       db.run("INSERT INTO logs (description, user_id) VALUES (?, ?)", [`User ${user.username} diubah passwordnya`, req.user.id]);
       res.json({ success: true, message: "Password berhasil diperbarui" });
@@ -578,13 +578,13 @@ app.post("/api/users/change-password", authenticateToken, (req: any, res) => {
 // Reset Database Securely (Admin Only)
 app.post("/api/admin/reset-database", authenticateToken, isAdmin, (req: any, res) => {
   db.serialize(() => {
-    db.run("DELETE FROM logs", (err) => {
+    db.run("DELETE FROM logs", (err: Error | null) => {
       if (err) console.error("Error clearing logs:", err);
     });
-    db.run("DELETE FROM packing_list", (err) => {
+    db.run("DELETE FROM packing_list", (err: Error | null) => {
       if (err) console.error("Error clearing packing list:", err);
     });
-    db.run("DELETE FROM users WHERE username != 'admin'", (err) => {
+    db.run("DELETE FROM users WHERE username != 'admin'", (err: Error | null) => {
       if (err) console.error("Error clearing users:", err);
     });
     
@@ -607,7 +607,7 @@ app.get("/api/packing", authenticateToken, (req: any, res) => {
 
   query += "ORDER BY pl.timestamp DESC";
 
-  db.all(query, params, (err, rows) => {
+  db.all(query, params, (err: Error | null, rows: any[]) => {
     if (err) {
       console.error("Error fetching packing list:", err);
       return res.status(500).json({ message: "Failed to fetch packing list" });
@@ -621,7 +621,7 @@ app.post("/api/packing", authenticateToken, upload.single("video"), async (req: 
   const file = req.file;
 
   // 1. Get today's total count to determine sequence index "Ke-X"
-  db.get("SELECT COUNT(*) as count FROM packing_list WHERE DATE(timestamp) = DATE('now')", async (err, row: any) => {
+  db.get("SELECT COUNT(*) as count FROM packing_list WHERE DATE(timestamp) = DATE('now')", async (err: Error | null, row: any) => {
     if (err) {
       console.error("Failed to query daily packing sequence count:", err);
     }
@@ -681,7 +681,7 @@ app.post("/api/packing", authenticateToken, upload.single("video"), async (req: 
 
     // Gunakan INSERT OR REPLACE agar data resi bersifat unik (UPSERT)
     db.run("INSERT OR REPLACE INTO packing_list (resi_number, drive_link, user_id, timestamp) VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
-      [resiNumber, savedLink, req.user.id], function(err) {
+      [resiNumber, savedLink, req.user.id], function(this: any, err: Error | null) {
         if (err) {
           console.error("DB Error:", err);
           return res.status(500).json({ message: "Save failed" });
@@ -711,18 +711,18 @@ app.get("/api/logs", authenticateToken, (req: any, res) => {
   }
 
   query += "ORDER BY l.timestamp DESC LIMIT 100";
-  db.all(query, params, (err, rows) => res.json(rows));
+  db.all(query, params, (err: Error | null, rows: any[]) => res.json(rows));
 });
 
 // Stats for Dashboard
 app.get("/api/stats", authenticateToken, isAdmin, (req, res) => {
   const stats: any = {};
   db.serialize(() => {
-    db.get("SELECT COUNT(*) as total FROM packing_list", (err, row: any) => {
+    db.get("SELECT COUNT(*) as total FROM packing_list", (err: Error | null, row: any) => {
       stats.totalPacking = row?.total || 0;
-      db.get("SELECT COUNT(*) as today FROM packing_list WHERE DATE(timestamp) = DATE('now')", (err, row: any) => {
+      db.get("SELECT COUNT(*) as today FROM packing_list WHERE DATE(timestamp) = DATE('now')", (err: Error | null, row: any) => {
         stats.todayPacking = row?.today || 0;
-        db.all("SELECT DATE(timestamp) as date, COUNT(*) as count FROM packing_list WHERE timestamp > DATE('now', '-7 days') GROUP BY DATE(timestamp)", (err, rows) => {
+        db.all("SELECT DATE(timestamp) as date, COUNT(*) as count FROM packing_list WHERE timestamp > DATE('now', '-7 days') GROUP BY DATE(timestamp)", (err: Error | null, rows: any[]) => {
           stats.dailyChart = rows || [];
           
           const packersQuery = `
@@ -735,7 +735,7 @@ app.get("/api/stats", authenticateToken, isAdmin, (req, res) => {
             LEFT JOIN (SELECT user_id, COUNT(*) as todayCount FROM packing_list WHERE DATE(timestamp) = DATE('now') GROUP BY user_id) p_today ON u.id = p_today.user_id
             ORDER BY count DESC, u.username ASC
           `;
-          db.all(packersQuery, (err, packerRows) => {
+          db.all(packersQuery, (err: Error | null, packerRows: any[]) => {
             stats.packerStats = packerRows || [];
             res.json(stats);
           });
